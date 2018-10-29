@@ -1,0 +1,127 @@
+---
+title: "Prediction Assignment"
+author: "Yinning Zhang"
+date: "October 17, 2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Summary
+
+This project is created for the John Hopkins's Practical Machine Learning course on Coursera. It uses the data from http://web.archive.org/web/20161224072740/http:/groupware.les.inf.puc-rio.br/har, which captures data from accelerometers on the belt, forearm, arm, and dumbell when the participants doing activities. This project is to find a model to predict the human activity with the data from accelerometers.  
+
+
+## Loading data and Preprocessing
+
+1. Load data.
+
+```{r LoadData, echo=TRUE}
+library(data.table)
+training <- fread('https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv')
+training <- data.frame(training)
+testing <- fread('https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv')
+testing <- data.frame(testing)
+dim(training)
+```
+```{r PreviewTesting, echo=TRUE}
+dim(testing)
+```
+
+2. Remove columns containing more than 5 NA.
+```{r RemoveNA, echo=TRUE}
+training_new <- training[ , colSums(is.na(training)) == 0]
+dim(training_new)
+```
+
+Apply this method to the testing data. 
+```{r, RemoveNATest, echo=TRUE}
+testing_new <- testing[ ,  colSums(is.na(testing)) == 0]
+dim(testing_new)
+```
+
+3. Remove the columns with ID and timestamps
+```{r RemoveIDTime, echo=TRUE}
+training2 <- training_new[ , c(-1, -2, -3, -4, -5, -6, -7)]
+testing2 <- testing_new[ , c(-1, -2, -3, -4, -5, -6, -7)]
+```
+
+4. Identify and remove near zero variance predictors
+
+```{r RemoveZeroVar, echo=TRUE}
+library(caret)
+nzv <- nearZeroVar(training2, saveMetrics = TRUE) # I print out nzv. The result shows that none shall be removed.
+```
+
+5. Remove high correlated variables.
+
+```{r RemoveCor, echo=TRUE}
+COR = cor(training2[, -53])
+COR2 = findCorrelation(COR, cutoff = 0.8)
+COR2 = sort(COR2)
+training3 = training2[ , -c(COR2)]
+dim(training3) # reduce to 40 variables
+testing3 =testing2[ , -c(COR2)]
+dim(testing3)
+```
+
+
+## Splitting the data
+```{r DataPartition, echo=TRUE}
+library(caret)
+inTrain <- createDataPartition(y = training3$classe, p=0.75, list = FALSE)
+training_s <- training3[inTrain,]
+testing_s <- training3[-inTrain, ]
+dim(training_s); dim(testing_s)
+```
+
+
+## Predict with models and compare the accuracies. 
+
+1. Tree model
+```{r TreeModel, echo=TRUE}
+modelTree <-  train(as.factor(classe)~., method = "rpart", preProcess = c("center", "scale"), data = training_s)
+confusionMatrix(as.factor(training_s$classe), predict(modelTree, training_s))
+```
+
+This accuracy is very low, so I give up this model and do not need to proceed. 
+
+2. Random Forest
+
+```{r RandomForest, echo=TRUE}
+library(randomForest)
+modelForest <- randomForest(as.factor(classe) ~., data = training_s, mtry=4, ntree=200, prox=TRUE, importance=TRUE)
+modelForest
+```
+
+The accuracy seems very high. Now let's plot the error vs Number of trees
+```{r TreeNumber, echo=TRUE}
+plot(modelForest)
+```
+
+Refine this model to have only 50 trees, as the plot shows that the error rates stay even if you add trees over 50. 
+
+```{r RandomForest2, echo=TRUE}
+modelForest2 <- randomForest(as.factor(classe) ~., data = training_s, mtry=4, ntree=50, prox=TRUE, importance=TRUE)
+modelForest2
+```
+
+The error rate is still good; however this model with  less trees is more efficient. Let's use it.
+
+Find the importance of the factors.
+```{r ModelDetails, echo=TRUE}
+varImpPlot(modelForest2,)
+```
+
+## Use the Radom Forest model to predict the testing data and see the accuracy.
+```{r PredictTesting, echo=TRUE}
+confusionMatrix(as.factor(testing_s$classe), predict(modelForest2, testing_s))
+```
+The accuracy is good on the testing data as well.
+Now, I use this model to predict the data from the questionaires.
+
+```{r PredictQuestions, echo=TRUE}
+print(predict(modelForest2, testing3[, c(1:39)]))
+```
